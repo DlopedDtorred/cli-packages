@@ -1,42 +1,41 @@
-
 #!/bin/bash
 set -e
 
 REGISTRY_URL="https://raw.githubusercontent.com/dlopeddtorred/cli-packages/main/packages.json"
 DEVELOPERS_URL="https://raw.githubusercontent.com/dlopeddtorred/cli-packages/main/developers.json"
 
-# Comando: help
+# Command: help
 show_help() {
-    echo "pkgman - Gestor de paquetes para la CLI"
+    echo "pkgman - CLI Package Manager"
     echo ""
-    echo "Uso:"
-    echo "  pkgman <comando> [opciones]"
+    echo "Usage:"
+    echo "  pkgman <command> [options]"
     echo ""
-    echo "Comandos:"
-    echo "  install <paquete>   Instala un paquete registrado en el catálogo central"
-    echo "  remove <paquete>    Desinstala un paquete del sistema local"
-    echo "  unpublish <paquete> Elimina un paquete del registro central (Solo el dueño)"
-    echo "  list                Muestra todos los paquetes disponibles para instalar"
-    echo "  upload              Detecta install.sh, crea pkg.json y publica tu paquete"
-    echo "  help, -h, --help    Muestra esta ayuda"
+    echo "Commands:"
+    echo "  install <package>   Installs a package registered in the central catalog"
+    echo "  remove <package>    Uninstalls a package from the local system"
+    echo "  unpublish <package> Removes a package from the central registry (Owner/Dev only)"
+    echo "  list                Lists all available packages in the catalog"
+    echo "  upload              Detects install.sh, creates pkg.json, and publishes your package"
+    echo "  help, -h, --help    Displays this help menu"
 }
 
-# Comando: install
+# Command: install
 cmd_install() {
     PKG_NAME="$1"
     if [ -z "$PKG_NAME" ]; then
-        echo "Error: Debes especificar el nombre de un paquete."
-        echo "Uso: pkgman install <nombre_paquete>"
+        echo "Error: You must specify a package name."
+        echo "Usage: pkgman install <package_name>"
         exit 1
     fi
 
-    echo "==> Buscando '$PKG_NAME' en el registro central..."
+    echo "==> Searching for '$PKG_NAME' in the central registry..."
     REGISTRY_JSON=$(curl -sL "$REGISTRY_URL")
 
     PKG_DATA=$(echo "$REGISTRY_JSON" | jq -r ".packages[\"$PKG_NAME\"] // empty")
 
     if [ -z "$PKG_DATA" ]; then
-        echo "Error: El paquete '$PKG_NAME' no se encuentra en el registro."
+        echo "Error: Package '$PKG_NAME' was not found in the registry."
         exit 1
     fi
 
@@ -44,38 +43,38 @@ cmd_install() {
     IS_VERIFIED=$(echo "$PKG_DATA" | jq -r '.verified // false')
 
     if [ "$IS_VERIFIED" = "true" ]; then
-        echo "==> [✓ Desarrollador Verificado] Instalando '$PKG_NAME' seguro..."
+        echo "==> [✓ Verified Developer] Installing '$PKG_NAME' securely..."
     else
-        echo "==> ⚠️ ATENCIÓN: El paquete '$PKG_NAME' no es de un desarrollador verificado."
-        read -p "¿Deseas continuar con la instalación de todas formas? (s/N): " CONFIRM
-        if [[ ! "$CONFIRM" =~ ^[sS]$ ]]; then
-            echo "Instalación cancelada."
+        echo "==> ⚠️ WARNING: Package '$PKG_NAME' is not published by a verified developer."
+        read -p "Do you want to proceed with the installation anyway? (y/N): " CONFIRM
+        if [[ ! "$CONFIRM" =~ ^[yY]$ ]]; then
+            echo "Installation aborted."
             exit 0
         fi
     fi
 
-    echo "==> Descargando e instalando desde '$INSTALL_URL'..."
+    echo "==> Downloading and installing from '$INSTALL_URL'..."
     curl -sL "$INSTALL_URL" | bash
-    echo "¡Paquete '$PKG_NAME' instalado correctamente!"
+    echo "Package '$PKG_NAME' installed successfully!"
 }
 
-# Comando: remove (desinstalación local)
+# Command: remove (local system cleanup)
 cmd_remove() {
     PKG_NAME="$1"
     if [ -z "$PKG_NAME" ]; then
-        echo "Error: Debes especificar el nombre del paquete a eliminar de tu sistema."
-        echo "Uso: pkgman remove <nombre_paquete>"
+        echo "Error: You must specify the package name to remove from your system."
+        echo "Usage: pkgman remove <package_name>"
         exit 1
     fi
 
     TARGET_PATH="/usr/local/bin/$PKG_NAME"
 
     if [ ! -f "$TARGET_PATH" ]; then
-        echo "Error: El ejecutable '$PKG_NAME' no se encuentra instalado en '$TARGET_PATH'."
+        echo "Error: Executable '$PKG_NAME' was not found in '$TARGET_PATH'."
         exit 1
     fi
 
-    echo "==> Eliminando binario local '$TARGET_PATH'..."
+    echo "==> Removing local binary '$TARGET_PATH'..."
 
     if [ -w "/usr/local/bin" ]; then
         rm -f "$TARGET_PATH"
@@ -83,47 +82,47 @@ cmd_remove() {
         sudo rm -f "$TARGET_PATH"
     fi
 
-    echo "¡El paquete '$PKG_NAME' ha sido desinstalado de tu sistema local correctamente!"
+    echo "Package '$PKG_NAME' has been uninstalled from your local system!"
 }
 
-# Comando: list
+# Command: list
 cmd_list() {
-    echo "==> Obteniendo lista de paquetes disponibles..."
+    echo "==> Fetching list of available packages..."
     REGISTRY_JSON=$(curl -sL "$REGISTRY_URL")
     
     echo "$REGISTRY_JSON" | jq -r '.packages | to_entries[] | 
       if .value.verified == true then
-        "  - \(.key) [✓ Verificado]: \(.value.description) (v\(.value.version))"
+        "  - \(.key) [✓ Verified]: \(.value.description) (v\(.value.version))"
       else
         "  - \(.key): \(.value.description) (v\(.value.version))"
       fi'
 }
 
-# Comando: upload
+# Command: upload
 cmd_upload() {
-    echo "==> Preparando publicación del paquete..."
+    echo "==> Preparing package publication..."
 
     if [ ! -f "install.sh" ]; then
-        echo "Error: No se encontró un archivo install.sh en este directorio."
+        echo "Error: No install.sh file found in the current directory."
         exit 1
     fi
 
     if [ ! -f "pkg.json" ]; then
-        echo "No se encontró pkg.json. Generando uno nuevo..."
+        echo "No pkg.json found. Generating a new one..."
         
         DIR_NAME=$(basename "$PWD")
-        read -p "Nombre del paquete [$DIR_NAME]: " PKG_NAME
+        read -p "Package name [$DIR_NAME]: " PKG_NAME
         PKG_NAME=${PKG_NAME:-$DIR_NAME}
         
-        read -p "Versión [1.0.0]: " PKG_VER
+        read -p "Version [1.0.0]: " PKG_VER
         PKG_VER=${PKG_VER:-1.0.0}
         
-        read -p "Descripción: " PKG_DESC
+        read -p "Description: " PKG_DESC
         
         REPO_URL=$(git config --get remote.origin.url | sed 's/\.git$//' | sed 's/git@github\.com:/https:\/\/github\.com\//')
         
         if [ -z "$REPO_URL" ]; then
-            echo "Error: Este directorio no está vinculado a un repositorio de GitHub remoto."
+            echo "Error: Current directory is not linked to a remote GitHub repository."
             exit 1
         fi
         
@@ -137,17 +136,17 @@ cmd_upload() {
   "install": "$RAW_INSTALL_URL"
 }
 EOF
-        echo "pkg.json creado correctamente."
+        echo "pkg.json created successfully."
         git add pkg.json
         git commit -m "chore: add pkg.json manifest"
         git push origin main
     fi
 
-    echo "==> Registrando en el catálogo central..."
+    echo "==> Registering with central catalog..."
     
     if ! command -v gh &> /dev/null; then
-        echo "Error: Necesitas tener instalada la CLI de GitHub ('gh') para hacer upload."
-        echo "Instálala y ejecuta 'gh auth login' primero."
+        echo "Error: GitHub CLI ('gh') is required to perform uploads."
+        echo "Please install it and run 'gh auth login' first."
         exit 1
     fi
 
@@ -158,15 +157,15 @@ EOF
 
     MY_GH_USER=$(gh api user -q .login | tr -d '[:space:]')
 
-    # Verificación estricta mediante jq boolean
+    # Strict developer verification check
     DEV_JSON=$(curl -sL "$DEVELOPERS_URL")
     IS_DEV_VERIFIED=$(echo "$DEV_JSON" | jq -r --arg user "$MY_GH_USER" '(.verified // []) | contains([$user])')
 
     if [ "$IS_DEV_VERIFIED" = "true" ]; then
-        echo "==> Usuario '$MY_GH_USER' verificado según developers.json ✓"
+        echo "==> User '$MY_GH_USER' verified via developers.json ✓"
         VERIFIED_FLAG=true
     else
-        echo "==> Usuario '$MY_GH_USER' no figura en la lista de desarrolladores verificados."
+        echo "==> User '$MY_GH_USER' is not listed in verified developers."
         VERIFIED_FLAG=false
     fi
 
@@ -184,7 +183,7 @@ EOF
     BRANCH_NAME="add-$PKG_NAME"
     git checkout -b "$BRANCH_NAME"
 
-    # Inyección de metadatos completa incluyendo owner
+    # Inject metadata with native boolean flag for verification
     jq --arg name "$PKG_NAME" \
        --arg ver "$PKG_VER" \
        --arg desc "$PKG_DESC" \
@@ -205,21 +204,21 @@ EOF
       --head "$MY_GH_USER:$BRANCH_NAME" \
       --base main
 
-    echo "¡Paquete $PKG_NAME enviado con éxito!"
+    echo "Package '$PKG_NAME' submitted successfully!"
     rm -rf "$TMP_DIR"
 }
 
-# Comando: unpublish (borrado central condicional)
+# Command: unpublish (central removal with ownership enforcement)
 cmd_unpublish() {
     PKG_NAME="$1"
     if [ -z "$PKG_NAME" ]; then
-        echo "Error: Debes especificar el paquete a eliminar del registro central."
-        echo "Uso: pkgman unpublish <nombre_paquete>"
+        echo "Error: You must specify the package name to remove from the central registry."
+        echo "Usage: pkgman unpublish <package_name>"
         exit 1
     fi
 
     if ! command -v gh &> /dev/null; then
-        echo "Error: Necesitas la CLI de GitHub ('gh') instalada y autenticada."
+        echo "Error: GitHub CLI ('gh') is required and must be authenticated."
         exit 1
     fi
 
@@ -229,25 +228,25 @@ cmd_unpublish() {
     PKG_DATA=$(echo "$REGISTRY_JSON" | jq -r ".packages[\"$PKG_NAME\"] // empty")
 
     if [ -z "$PKG_DATA" ]; then
-        echo "Error: El paquete '$PKG_NAME' no existe en el registro central."
+        echo "Error: Package '$PKG_NAME' does not exist in the central registry."
         exit 1
     fi
 
     PKG_OWNER=$(echo "$PKG_DATA" | jq -r '.owner // empty' | tr -d '[:space:]')
 
-    # Comprobar lista de desarrolladores
+    # Check verified developers list
     DEV_JSON=$(curl -sL "$DEVELOPERS_URL")
     IS_DEV_VERIFIED=$(echo "$DEV_JSON" | jq -r --arg user "$MY_GH_USER" '(.verified // []) | contains([$user])')
 
-    # Evaluación estricta de permisos
+    # Strict authorization check
     if [ "$MY_GH_USER" != "$PKG_OWNER" ] && [ "$IS_DEV_VERIFIED" != "true" ]; then
-        echo "❌ Permiso denegado: El paquete '$PKG_NAME' pertenece a @$PKG_OWNER."
-        echo "Tu usuario actual es @$MY_GH_USER."
-        echo "Solo el propietario original o un administrador verificado puede eliminarlo."
+        echo "❌ Permission denied: Package '$PKG_NAME' belongs to @$PKG_OWNER."
+        echo "Your current GitHub user is @$MY_GH_USER."
+        echo "Only the original owner or a verified administrator can unpublish it."
         exit 1
     fi
 
-    echo "==> Permisos confirmados para @$MY_GH_USER. Generando solicitud de eliminación..."
+    echo "==> Authorization confirmed for @$MY_GH_USER. Generating removal pull request..."
 
     gh repo fork dlopeddtorred/cli-packages --clone=false 2>/dev/null || true
     TMP_DIR=$(mktemp -d)
@@ -262,7 +261,7 @@ cmd_unpublish() {
     BRANCH_NAME="remove-$PKG_NAME"
     git checkout -b "$BRANCH_NAME"
 
-    # Eliminación del nodo en packages.json
+    # Remove node from packages.json
     jq --arg name "$PKG_NAME" 'del(.packages[$name])' packages.json > packages.tmp.json && mv packages.tmp.json packages.json
 
     git add packages.json
@@ -272,15 +271,15 @@ cmd_unpublish() {
     gh pr create \
       --repo dlopeddtorred/cli-packages \
       --title "Remove package: $PKG_NAME" \
-      --body "Removal request for **$PKG_NAME** authorized by owner @$MY_GH_USER" \
+      --body "Removal request for **$PKG_NAME** authorized by @$MY_GH_USER" \
       --head "$MY_GH_USER:$BRANCH_NAME" \
       --base main
 
-    echo "¡Solicitud de eliminación enviada con éxito para '$PKG_NAME'!"
+    echo "Removal request submitted successfully for '$PKG_NAME'!"
     rm -rf "$TMP_DIR"
 }
 
-# Evaluador principal
+# Main dispatcher
 case "$1" in
     install)
         cmd_install "$2"
@@ -301,7 +300,7 @@ case "$1" in
         show_help
         ;;
     *)
-        echo "Comando no reconocido: $1"
+        echo "Unrecognized command: $1"
         echo ""
         show_help
         exit 1
