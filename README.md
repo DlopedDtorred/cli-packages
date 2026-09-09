@@ -6,10 +6,18 @@ A lightweight command-line package manager powered by GitHub Repositories and Is
 
 ## 🚀 Quick Start (For Users)
 
-To install a package using our CLI tool, run:
+### 1. Install the CLI tool globally
+Run this command once in your terminal to install the `pkgman` command permanently:
 
 ```bash
-bash <(curl -sL [https://raw.githubusercontent.com/dlopeddtorred/cli-packages/main/cli.sh](https://raw.githubusercontent.com/YOUR_USERNAME/cli-packages/main/cli.sh)) install <package-name>
+bash <(curl -sL [https://raw.githubusercontent.com/dlopeddtorred/cli-packages/main/install.sh](https://raw.githubusercontent.com/YOUR_USERNAME/cli-packages/main/install.sh))
+```
+2. Use your command normally
+
+Once installed, you can use the command from anywhere on your system:
+```Bash
+
+pkgman install <package-name>
 ```
 ## 🛠️ How to Add Your Own Package (For Contributors)
 
