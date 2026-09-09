@@ -2,6 +2,7 @@
 set -e
 
 REGISTRY_URL="https://raw.githubusercontent.com/dlopeddtorred/cli-packages/main/packages.json"
+DEVELOPERS_URL="https://raw.githubusercontent.com/dlopeddtorred/cli-packages/main/developers.json"
 
 # Comando: help
 show_help() {
@@ -125,9 +126,21 @@ EOF
     PKG_DESC=$(jq -r '.description' pkg.json)
     PKG_INSTALL=$(jq -r '.install' pkg.json)
 
-    gh repo fork dlopeddtorred/cli-packages --clone=false 2>/dev/null || true
-    
     MY_GH_USER=$(gh api user -q .login)
+
+    # Verificar si el usuario está en el archivo independiente developers.json
+    DEV_JSON=$(curl -sL "$DEVELOPERS_URL")
+    IS_DEV_VERIFIED=$(echo "$DEV_JSON" | jq --arg user "$MY_GH_USER" '.verified // [] | contains([$user])')
+
+    if [ "$IS_DEV_VERIFIED" = "true" ]; then
+        echo "==> Usuario '$MY_GH_USER' verificado según developers.json ✓"
+        VERIFIED_FLAG=true
+    else
+        echo "==> Usuario '$MY_GH_USER' no figura en la lista de desarrolladores verificados."
+        VERIFIED_FLAG=false
+    fi
+
+    gh repo fork dlopeddtorred/cli-packages --clone=false 2>/dev/null || true
     
     TMP_DIR=$(mktemp -d)
     git clone "https://github.com/$MY_GH_USER/cli-packages.git" "$TMP_DIR"
@@ -145,7 +158,8 @@ EOF
        --arg ver "$PKG_VER" \
        --arg desc "$PKG_DESC" \
        --arg url "$PKG_INSTALL" \
-       '.packages[$name] = {"name": $name, "version": $ver, "description": $desc, "url": $url, "verified": false}' \
+       --argjson is_ver "$VERIFIED_FLAG" \
+       '.packages[$name] = {"name": $name, "version": $ver, "description": $desc, "url": $url, "verified": $is_ver}' \
        packages.json > packages.tmp.json && mv packages.tmp.json packages.json
 
     git add packages.json
@@ -155,11 +169,11 @@ EOF
     gh pr create \
       --repo dlopeddtorred/cli-packages \
       --title "Add package: $PKG_NAME" \
-      --body "Automated submission via pkgman upload" \
+      --body "Automated submission via pkgman upload by @$MY_GH_USER" \
       --head "$MY_GH_USER:$BRANCH_NAME" \
       --base main
 
-    echo "¡Paquete $PKG_NAME enviado a revisión con éxito!"
+    echo "¡Paquete $PKG_NAME enviado con éxito!"
     rm -rf "$TMP_DIR"
 }
 
