@@ -10,7 +10,7 @@ A lightweight command-line package manager powered by GitHub Repositories and Is
 Run this command once in your terminal to install the `pkgman` command permanently:
 
 ```bash
-bash <(curl -sL [https://raw.githubusercontent.com/dlopeddtorred/cli-packages/main/install.sh](https://raw.githubusercontent.com/YOUR_USERNAME/cli-packages/main/install.sh))
+curl -sL https://raw.githubusercontent.com/dlopeddtorred/cli-packages/main/install.sh | bash
 ```
 2. Use your command normally
 
