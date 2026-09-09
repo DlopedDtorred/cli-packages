@@ -1,3 +1,4 @@
+
 name: Generate Package PR
 
 on:
@@ -5,7 +6,7 @@ on:
     types: [opened, labeled]
 
 jobs:
-  create-pr:
+  process-issue:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -16,64 +17,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Process Package and Create PR
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install PyGithub
+
+      - name: Run Python script
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_BODY: ${{ github.event.issue.body }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          LABELS: ${{ toJson(github.event.issue.labels) }}
-        run: |
-          # 1. Comprobar si tiene la etiqueta new-package
-          if ! echo "$LABELS" | grep -q '"name":"new-package"'; then
-            echo "El issue no tiene la etiqueta 'new-package'. Omitiendo."
-            exit 0
-          fi
-
-          # 2. Extraer URL de GitHub y Nombre del paquete usando expresiones regulares
-          REPO_URL=$(echo "$ISSUE_BODY" | grep -oE 'https://github\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+' | head -n 1)
-          
-          if [ -z "$REPO_URL" ]; then
-            gh issue comment "$ISSUE_NUMBER" --body "❌ No se encontró ninguna URL válida de GitHub en el issue."
-            exit 1
-          fi
-
-          CLEAN_REPO=$(echo "$REPO_URL" | sed 's/\.git$//' | sed 's/\/$//')
-          MANIFEST_URL=$(echo "$CLEAN_REPO" | sed 's/github\.com/raw\.githubusercontent\.com/')/main/pkg.json
-
-          echo "Descargando manifiesto desde: $MANIFEST_URL"
-          MANIFEST_JSON=$(curl -sL "$MANIFEST_URL")
-
-          # Validar que el pkg.json existe y es válido
-          PKG_NAME=$(echo "$MANIFEST_JSON" | jq -r '.name // empty')
-          PKG_VERSION=$(echo "$MANIFEST_JSON" | jq -r '.version // "1.0.0"')
-          PKG_DESC=$(echo "$MANIFEST_JSON" | jq -r '.description // ""')
-          PKG_INSTALL=$(echo "$MANIFEST_JSON" | jq -r '.install // empty')
-
-          if [ -z "$PKG_NAME" ] || [ -z "$PKG_INSTALL" ]; then
-            gh issue comment "$ISSUE_NUMBER" --body "❌ No se pudo leer \`pkg.json\` desde \`$MANIFEST_URL\` o faltan campos (\`name\`, \`install\`)."
-            exit 1
-          fi
-
-          # 3. Actualizar packages.json con jq
-          jq --arg name "$PKG_NAME" \
-             --arg ver "$PKG_VERSION" \
-             --arg desc "$PKG_DESC" \
-             --arg url "$PKG_INSTALL" \
-             '.packages[$name] = {"name": $name, "version": $ver, "description": $desc, "url": $url}' \
-             packages.json > packages.tmp.json && mv packages.tmp.json packages.json
-
-          # 4. Configurar git y subir la PR
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          BRANCH_NAME="pkg-add-${ISSUE_NUMBER}"
-          git checkout -b "$BRANCH_NAME"
-          git add packages.json
-          git commit -m "chore: add package $PKG_NAME from issue #$ISSUE_NUMBER"
-          git push origin "$BRANCH_NAME" --force
-
-          gh pr create \
-            --title "Add package: $PKG_NAME (Issue #$ISSUE_NUMBER)" \
-            --body "PR automática para añadir el paquete **$PKG_NAME**." \
-            --head "$BRANCH_NAME" \
-            --base "main"
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python scripts/process_issue.py
