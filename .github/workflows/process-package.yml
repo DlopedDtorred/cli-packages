@@ -1,15 +1,16 @@
-name: Process Approved Package
+name: Generate Package PR
 
 on:
   issues:
-    types: [labeled]
+    types: [opened, labeled]
 
 jobs:
-  add-package:
-    if: github.event.label.name == 'approved'
+  create-pr:
+    if: contains(github.event.issue.labels.*.name, 'new-package')
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
       issues: write
     steps:
       - name: Checkout registry repository
@@ -19,7 +20,7 @@ jobs:
         uses: stefanbuck/github-issue-parser@v3
         id: issue-parser
 
-      - name: Fetch manifest and update packages.json
+      - name: Fetch manifest and prepare packages.json
         uses: actions/github-script@v7
         with:
           script: |
@@ -29,45 +30,59 @@ jobs:
 
             const pkgName = payload.package_name?.trim();
             const repoUrl = payload.repo_url?.trim();
+            const issueNumber = context.payload.issue.number;
 
             if (!pkgName || !repoUrl) {
               console.error("Missing required fields in the issue.");
               return;
             }
 
-            // Transform https://github.com/user/repo into raw content URL for pkg.json
             const cleanRepoUrl = repoUrl.replace(/\/$/, "");
             const manifestUrl = cleanRepoUrl.replace("github.com", "raw.githubusercontent.com") + "/main/pkg.json";
 
             console.log(`Fetching manifest from: ${manifestUrl}`);
 
+            let manifest;
             try {
               const response = await fetch(manifestUrl);
               if (!response.ok) {
                 throw new Error(`Failed to fetch pkg.json (Status: ${response.status})`);
               }
-              const manifest = await response.json();
-
-              const filePath = './packages.json';
-              const fileContent = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-
-              fileContent.packages[pkgName] = {
-                name: manifest.name || pkgName,
-                version: manifest.version || "1.0.0",
-                description: manifest.description || "",
-                url: manifest.install
-              };
-
-              fs.writeFileSync(filePath, JSON.stringify(fileContent, null, 2));
-              console.log(`Package '${pkgName}' successfully registered!`);
-
+              manifest = await response.json();
             } catch (error) {
-              console.error("Error processing manifest:", error.message);
-              setFailed(error.message);
+              console.error("Error fetching manifest:", error.message);
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `❌ Automated check failed: Could not fetch or parse \`pkg.json\` from \`${manifestUrl}\`. Please check your repository structure.`
+              });
+              return;
             }
 
-      - name: Commit changes to registry
-        uses: stefanzweifel/git-auto-commit-action@v5
+            const filePath = './packages.json';
+            const fileContent = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+
+            fileContent.packages[pkgName] = {
+              name: manifest.name || pkgName,
+              version: manifest.version || "1.0.0",
+              description: manifest.description || "",
+              url: manifest.install
+            };
+
+            fs.writeFileSync(filePath, JSON.stringify(fileContent, null, 2));
+            console.log(`Successfully prepared package '${pkgName}' in packages.json`);
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
         with:
-          commit_message: "chore: auto-add approved package via manifest"
-          branch: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: add package from issue #${{ github.event.issue.number }}"
+          title: "Add package: issue #${{ github.event.issue.number }}"
+          body: |
+            Automated Pull Request to add a new package requested in issue #${{ github.event.issue.number }}.
+            
+            Please review the changes in `packages.json` and merge if everything looks correct.
+          branch: pkg-add-${{ github.event.issue.number }}
+          base: main
+          delete-branch: true
