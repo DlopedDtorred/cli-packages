@@ -1,3 +1,4 @@
+
 #!/bin/bash
 set -e
 
@@ -58,7 +59,7 @@ cmd_install() {
     echo "¡Paquete '$PKG_NAME' instalado correctamente!"
 }
 
-# Comando: remove (desinstalación del sistema local)
+# Comando: remove (desinstalación local)
 cmd_remove() {
     PKG_NAME="$1"
     if [ -z "$PKG_NAME" ]; then
@@ -155,11 +156,11 @@ EOF
     PKG_DESC=$(jq -r '.description' pkg.json)
     PKG_INSTALL=$(jq -r '.install' pkg.json)
 
-    MY_GH_USER=$(gh api user -q .login)
+    MY_GH_USER=$(gh api user -q .login | tr -d '[:space:]')
 
-    # Verificar si el usuario está en el archivo independiente developers.json
+    # Verificación estricta mediante jq boolean
     DEV_JSON=$(curl -sL "$DEVELOPERS_URL")
-    IS_DEV_VERIFIED=$(echo "$DEV_JSON" | jq --arg user "$MY_GH_USER" '.verified // [] | contains([$user])')
+    IS_DEV_VERIFIED=$(echo "$DEV_JSON" | jq -r --arg user "$MY_GH_USER" '(.verified // []) | contains([$user])')
 
     if [ "$IS_DEV_VERIFIED" = "true" ]; then
         echo "==> Usuario '$MY_GH_USER' verificado según developers.json ✓"
@@ -183,7 +184,7 @@ EOF
     BRANCH_NAME="add-$PKG_NAME"
     git checkout -b "$BRANCH_NAME"
 
-    # Se guarda el propietario (owner) para validar permisos de unpublish en el futuro
+    # Inyección de metadatos completa incluyendo owner
     jq --arg name "$PKG_NAME" \
        --arg ver "$PKG_VER" \
        --arg desc "$PKG_DESC" \
@@ -208,7 +209,7 @@ EOF
     rm -rf "$TMP_DIR"
 }
 
-# Comando: unpublish (eliminación con verificación de dueño en el registro)
+# Comando: unpublish (borrado central condicional)
 cmd_unpublish() {
     PKG_NAME="$1"
     if [ -z "$PKG_NAME" ]; then
@@ -222,7 +223,7 @@ cmd_unpublish() {
         exit 1
     fi
 
-    MY_GH_USER=$(gh api user -q .login)
+    MY_GH_USER=$(gh api user -q .login | tr -d '[:space:]')
     REGISTRY_JSON=$(curl -sL "$REGISTRY_URL")
 
     PKG_DATA=$(echo "$REGISTRY_JSON" | jq -r ".packages[\"$PKG_NAME\"] // empty")
@@ -232,16 +233,17 @@ cmd_unpublish() {
         exit 1
     fi
 
-    PKG_OWNER=$(echo "$PKG_DATA" | jq -r '.owner // empty')
+    PKG_OWNER=$(echo "$PKG_DATA" | jq -r '.owner // empty' | tr -d '[:space:]')
 
-    # Comprobar si el usuario actual es un admin/dev verificado
+    # Comprobar lista de desarrolladores
     DEV_JSON=$(curl -sL "$DEVELOPERS_URL")
-    IS_DEV_VERIFIED=$(echo "$DEV_JSON" | jq --arg user "$MY_GH_USER" '.verified // [] | contains([$user])')
+    IS_DEV_VERIFIED=$(echo "$DEV_JSON" | jq -r --arg user "$MY_GH_USER" '(.verified // []) | contains([$user])')
 
-    # Verificación de permisos
+    # Evaluación estricta de permisos
     if [ "$MY_GH_USER" != "$PKG_OWNER" ] && [ "$IS_DEV_VERIFIED" != "true" ]; then
         echo "❌ Permiso denegado: El paquete '$PKG_NAME' pertenece a @$PKG_OWNER."
-        echo "Solo el propietario original o un desarrollador verificado puede eliminarlo del registro."
+        echo "Tu usuario actual es @$MY_GH_USER."
+        echo "Solo el propietario original o un administrador verificado puede eliminarlo."
         exit 1
     fi
 
@@ -260,7 +262,7 @@ cmd_unpublish() {
     BRANCH_NAME="remove-$PKG_NAME"
     git checkout -b "$BRANCH_NAME"
 
-    # Se borra el paquete de packages.json
+    # Eliminación del nodo en packages.json
     jq --arg name "$PKG_NAME" 'del(.packages[$name])' packages.json > packages.tmp.json && mv packages.tmp.json packages.json
 
     git add packages.json
