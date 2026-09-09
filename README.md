@@ -9,7 +9,7 @@ A lightweight command-line package manager powered by GitHub Repositories and Is
 To install a package using our CLI tool, run:
 
 ```bash
-bash <(curl -sL [https://raw.githubusercontent.com/YOUR_USERNAME/cli-packages/main/cli.sh](https://raw.githubusercontent.com/YOUR_USERNAME/cli-packages/main/cli.sh)) install <package-name>
+bash <(curl -sL [https://raw.githubusercontent.com/dlopeddtorred/cli-packages/main/cli.sh](https://raw.githubusercontent.com/YOUR_USERNAME/cli-packages/main/cli.sh)) install <package-name>
 ```
 ## 🛠️ How to Add Your Own Package (For Contributors)
 
