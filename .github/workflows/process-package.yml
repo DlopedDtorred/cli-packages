@@ -12,18 +12,13 @@ jobs:
       pull-requests: write
       issues: write
     steps:
-      - name: Checkout registry repository
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          persist-credentials: true
 
-      - name: Parse issue form
-        uses: stefanbuck/github-issue-parser@v3
-        id: issue-parser
-
-      - name: Fetch manifest and update packages.json
+      - name: Process Package and Create PR
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const labels = context.payload.issue.labels.map(l => l.name);
             if (!labels.includes('new-package')) {
@@ -32,27 +27,51 @@ jobs:
             }
 
             const fs = require('fs');
-            const issueData = ${{ steps.issue-parser.outputs.jsonString }};
+            const execSync = require('child_process').execSync;
+            const issueData = ${{ steps.issue-parser.outputs.jsonString || '{}' }};
             
-            if (!issueData || !issueData.payload) {
-              console.error("No se pudo parsear el contenido del issue.");
-              return;
+            // Si el parser nativo falló, extraemos los datos directamente del cuerpo del issue con una expresión regular infalible
+            let pkgName = "";
+            let repoUrl = "";
+            
+            const body = context.payload.issue.body || "";
+            const lines = body.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+              if (lines[i].includes('Package Name') || lines[i].includes('nombre') || i === 1) {
+                // Intento de captura heurística si el formato varía
+                if (!pkgName && lines[i+1] && !lines[i+1].startsWith('###')) {
+                  pkgName = lines[i+1].trim();
+                }
+              }
             }
 
-            const payload = issueData.payload;
-            const pkgName = (payload.package_name || payload.pkg_name || Object.values(payload)[0])?.trim();
-            const repoUrl = (payload.repo_url || payload.repository_url || Object.values(payload)[1])?.trim();
+            // Fallback directo por si acaso leemos del payload normalizado
+            if (issueData && issueData.payload) {
+              pkgName = pkgName || Object.values(issueData.payload)[0]?.trim();
+              repoUrl = repoUrl || Object.values(issueData.payload)[1]?.trim();
+            }
+
+            // Si por lo que sea el parser de issue falló en el JSON string, buscamos URLs en el texto del issue
+            if (!repoUrl) {
+              const urlMatch = body.match(/https:\/\/github\.com\/[^\s]+/);
+              if (urlMatch) repoUrl = urlMatch[0];
+            }
+
             const issueNumber = context.payload.issue.number;
+            console.log(`Paquete detectado: ${pkgName}, URL: ${repoUrl}`);
 
             if (!pkgName || !repoUrl) {
-              console.error("Faltan campos obligatorios.");
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `❌ Error: No se pudo extraer el nombre del paquete o la URL del repositorio del issue.`
+              });
               return;
             }
 
             const cleanRepoUrl = repoUrl.replace(/\/$/, "");
             const manifestUrl = cleanRepoUrl.replace("github.com", "raw.githubusercontent.com") + "/main/pkg.json";
-
-            console.log(`Descargando manifiesto desde: ${manifestUrl}`);
 
             let manifest;
             try {
@@ -60,22 +79,19 @@ jobs:
               if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
               manifest = await response.json();
             } catch (error) {
-              console.error("Error al obtener pkg.json:", error.message);
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                body: `❌ Error automático: No se pudo leer el archivo \`pkg.json\` desde \`${manifestUrl}\`.`
+                body: `❌ Error: No se pudo leer \`pkg.json\` desde \`${manifestUrl}\`.`
               });
               return;
             }
 
+            // Actualizar packages.json
             const filePath = './packages.json';
             const fileContent = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-
-            if (!fileContent.packages) {
-              fileContent.packages = {};
-            }
+            if (!fileContent.packages) fileContent.packages = {};
 
             fileContent.packages[pkgName] = {
               name: manifest.name || pkgName,
@@ -85,19 +101,25 @@ jobs:
             };
 
             fs.writeFileSync(filePath, JSON.stringify(fileContent, null, 2));
-            console.log(`Paquete '${pkgName}' añadido correctamente en packages.json.`);
 
-      - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GH_PAT }}
-          commit-message: "chore: add package from issue #${{ github.event.issue.number }}"
-          title: "Add package: issue #${{ github.event.issue.number }}"
-          body: |
-            Automated Pull Request to add a new package requested in issue #${{ github.event.issue.number }}.
-            
-            Please review the changes in `packages.json` and merge if everything looks correct.
-          branch: pkg-add-${{ github.event.issue.number }}
-          base: main
-          delete-branch: true
-          signoff: false
+            // Configurar Git en la Action
+            execSync(`git config --global user.name "github-actions[bot]"`);
+            execSync(`git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"`);
+
+            const branchName = `pkg-add-${issueNumber}-${Date.now()}`;
+            execSync(`git checkout -b ${branchName}`);
+            execSync(`git add packages.json`);
+            execSync(`git commit -m "chore: add package ${pkgName} from issue #${issueNumber}"`);
+            execSync(`git push origin ${branchName}`);
+
+            // Crear la Pull Request mediante la API oficial
+            await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Add package: ${pkgName} (Issue #${issueNumber})`,
+              head: branchName,
+              base: 'main',
+              body: `Automated Pull Request to add package **${pkgName}** requested in issue #${issueNumber}.\n\nPlease review the changes in \`packages.json\` and merge if correct.`
+            });
+
+            console.log("¡Pull Request creada con éxito!");
