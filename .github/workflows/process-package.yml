@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout registry repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       - name: Parse issue form
         uses: stefanbuck/github-issue-parser@v3
@@ -32,9 +34,8 @@ jobs:
             const fs = require('fs');
             const issueData = ${{ steps.issue-parser.outputs.jsonString }};
             
-            // Validación robusta para evitar errores si el payload viene vacío o con otro formato
             if (!issueData || !issueData.payload) {
-              console.error("No se pudo parsear el contenido del issue correctamente.");
+              console.error("No se pudo parsear el contenido del issue.");
               return;
             }
 
@@ -44,13 +45,7 @@ jobs:
             const issueNumber = context.payload.issue.number;
 
             if (!pkgName || !repoUrl) {
-              console.error("Faltan campos obligatorios en el issue.");
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                body: `❌ Error: No se pudieron leer el nombre del paquete o la URL del repositorio desde el formulario del issue.`
-              });
+              console.error("Faltan campos obligatorios.");
               return;
             }
 
@@ -62,17 +57,15 @@ jobs:
             let manifest;
             try {
               const response = await fetch(manifestUrl);
-              if (!response.ok) {
-                throw new Error(`No se pudo obtener pkg.json (Código: ${response.status})`);
-              }
+              if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
               manifest = await response.json();
             } catch (error) {
-              console.error("Error:", error.message);
+              console.error("Error al obtener pkg.json:", error.message);
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                body: `❌ Error automático: No se pudo leer el archivo \`pkg.json\` desde \`${manifestUrl}\`. Comprueba que la URL sea correcta y el archivo exista en la raíz.`
+                body: `❌ Error automático: No se pudo leer el archivo \`pkg.json\` desde \`${manifestUrl}\`.`
               });
               return;
             }
@@ -92,7 +85,7 @@ jobs:
             };
 
             fs.writeFileSync(filePath, JSON.stringify(fileContent, null, 2));
-            console.log(`Paquete '${pkgName}' escrito correctamente en packages.json`);
+            console.log(`Paquete '${pkgName}' añadido correctamente en packages.json.`);
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v6
@@ -107,3 +100,4 @@ jobs:
           branch: pkg-add-${{ github.event.issue.number }}
           base: main
           delete-branch: true
+          signoff: false
