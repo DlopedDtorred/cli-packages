@@ -1,25 +1,167 @@
-#!/usr/bin/env bash
+#!/bin/bash
+set -e
 
 REGISTRY_URL="https://raw.githubusercontent.com/dlopeddtorred/cli-packages/main/packages.json"
-COMMAND="$1"
-PKG_NAME="$2"
 
-if [ "$COMMAND" = "install" ]; then
+# Declaración de funciones de ayuda
+show_help() {
+    echo "Uso: pkgman <comando> [argumentos]"
+    echo ""
+    echo "Comandos disponibles:"
+    echo "  install <paquete>   Instala un paquete desde el registro central"
+    echo "  list                Muestra todos los paquetes disponibles"
+    echo "  upload              Genera pkg.json y publica el paquete actual"
+    echo "  help                Muestra este mensaje de ayuda"
+}
+
+cmd_install() {
+    PKG_NAME="$1"
     if [ -z "$PKG_NAME" ]; then
-        echo "Error: Please specify a package name."
+        echo "Error: Debes especificar el nombre de un paquete."
+        echo "Uso: pkgman install <nombre_paquete>"
         exit 1
     fi
 
-    echo "Searching for package '$PKG_NAME'..."
-    SCRIPT_URL=$(curl -s "$REGISTRY_URL" | jq -r ".packages.\"$PKG_NAME\".url")
+    echo "==> Buscando '$PKG_NAME' en el registro central..."
+    REGISTRY_JSON=$(curl -sL "$REGISTRY_URL")
 
-    if [ "$SCRIPT_URL" = "null" ] || [ -z "$SCRIPT_URL" ]; then
-        echo "Error: Package '$PKG_NAME' does not exist in the registry."
+    INSTALL_URL=$(echo "$REGISTRY_JSON" | jq -r ".packages[\"$PKG_NAME\"].url // empty")
+
+    if [ -z "$INSTALL_URL" ]; then
+        echo "Error: El paquete '$PKG_NAME' no se encuentra en el registro."
         exit 1
     fi
 
-    echo "Downloading and running installer..."
-    bash <(curl -s "$SCRIPT_URL")
-else
-    echo "Usage: pkgman install <package-name>"
-fi
+    echo "==> Descargando e instalando '$PKG_NAME'..."
+    curl -sL "$INSTALL_URL" | bash
+    echo "¡Paquete '$PKG_NAME' instalado correctamente!"
+}
+
+cmd_list() {
+    echo "==> Obteniendo lista de paquetes disponibles..."
+    REGISTRY_JSON=$(curl -sL "$REGISTRY_URL")
+    
+    echo "$REGISTRY_JSON" | jq -r '.packages | to_entries[] | "  - \(.key): \(.value.description) (v\(.value.version))"'
+}
+
+cmd_upload() {
+    echo "==> Preparando publicación del paquete..."
+
+    # 1. Verificar que existe un instalador
+    if [ ! -f "install.sh" ]; then
+        echo "Error: No se encontró un archivo install.sh en este directorio."
+        exit 1
+    fi
+
+    # 2. Generar pkg.json si no existe
+    if [ ! -f "pkg.json" ]; then
+        echo "No se encontró pkg.json. Generando uno nuevo..."
+        
+        DIR_NAME=$(basename "$PWD")
+        read -p "Nombre del paquete [$DIR_NAME]: " PKG_NAME
+        PKG_NAME=${PKG_NAME:-$DIR_NAME}
+        
+        read -p "Versión [1.0.0]: " PKG_VER
+        PKG_VER=${PKG_VER:-1.0.0}
+        
+        read -p "Descripción: " PKG_DESC
+        
+        # Obtener URL remota de Git
+        REPO_URL=$(git config --get remote.origin.url | sed 's/\.git$//' | sed 's/git@github\.com:/https:\/\/github\.com\//')
+        
+        if [ -z "$REPO_URL" ]; then
+            echo "Error: Este directorio no está vinculado a un repositorio de GitHub remoto."
+            exit 1
+        fi
+        
+        RAW_INSTALL_URL="$(echo "$REPO_URL" | sed 's/github\.com/raw\.githubusercontent\.com/')/main/install.sh"
+
+        cat <<EOF > pkg.json
+{
+  "name": "$PKG_NAME",
+  "version": "$PKG_VER",
+  "description": "$PKG_DESC",
+  "install": "$RAW_INSTALL_URL"
+}
+EOF
+        echo "pkg.json creado correctamente."
+        git add pkg.json
+        git commit -m "chore: add pkg.json manifest"
+        git push origin main
+    fi
+
+    # 3. Registrar en el repositorio central mediante la CLI de GitHub local
+    echo "==> Registrando en el catálogo central..."
+    
+    if ! command -v gh &> /dev/null; then
+        echo "Error: Necesitas tener instalada la CLI de GitHub ('gh') para hacer upload."
+        echo "Instálala y ejecuta 'gh auth login' primero."
+        exit 1
+    fi
+
+    PKG_NAME=$(jq -r '.name' pkg.json)
+    PKG_VER=$(jq -r '.version' pkg.json)
+    PKG_DESC=$(jq -r '.description' pkg.json)
+    PKG_INSTALL=$(jq -r '.install' pkg.json)
+
+    # Fork y Pull Request automático desde la terminal del usuario
+    gh repo fork dlopeddtorred/cli-packages --clone=false 2>/dev/null || true
+    
+    MY_GH_USER=$(gh api user -q .login)
+    
+    # Clonar temporalmente packages.json del registro
+    TMP_DIR=$(mktemp -d)
+    git clone "https://github.com/$MY_GH_USER/cli-packages.git" "$TMP_DIR"
+    
+    cd "$TMP_DIR"
+    git remote add upstream https://github.com/dlopeddtorred/cli-packages.git 2>/dev/null || true
+    git fetch upstream
+    git checkout main
+    git merge upstream/main
+
+    BRANCH_NAME="add-$PKG_NAME"
+    git checkout -b "$BRANCH_NAME"
+
+    # Actualizar packages.json localmente
+    jq --arg name "$PKG_NAME" \
+       --arg ver "$PKG_VER" \
+       --arg desc "$PKG_DESC" \
+       --arg url "$PKG_INSTALL" \
+       '.packages[$name] = {"name": $name, "version": $ver, "description": $desc, "url": $url}' \
+       packages.json > packages.tmp.json && mv packages.tmp.json packages.json
+
+    git add packages.json
+    git commit -m "chore: add $PKG_NAME"
+    git push origin "$BRANCH_NAME" --force
+
+    gh pr create \
+      --repo dlopeddtorred/cli-packages \
+      --title "Add package: $PKG_NAME" \
+      --body "Automated submission via pkgman upload" \
+      --head "$MY_GH_USER:$BRANCH_NAME" \
+      --base main
+
+    echo "¡Paquete $PKG_NAME enviado a revisión con éxito!"
+    rm -rf "$TMP_DIR"
+}
+
+# Control principal de comandos
+case "$1" in
+    install)
+        cmd_install "$2"
+        ;;
+    list)
+        cmd_list
+        ;;
+    upload)
+        cmd_upload
+        ;;
+    help|--help|-h|"")
+        show_help
+        ;;
+    *)
+        echo "Comando no reconocido: $1"
+        show_help
+        exit 1
+        ;;
+esac
