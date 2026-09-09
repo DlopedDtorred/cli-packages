@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-REGISTRY_URL="https://raw.githubusercontent.com/TU_USUARIO/cli-packages/main/packages.json"
+REGISTRY_URL="https://raw.githubusercontent.com/dlopeddtorred/cli-packages/main/packages.json"
 COMMAND="$1"
 PKG_NAME="$2"
 
@@ -21,5 +21,5 @@ if [ "$COMMAND" = "install" ]; then
     echo "Downloading and running installer..."
     bash <(curl -s "$SCRIPT_URL")
 else
-    echo "Usage: curl -sL URL_TO_CLI_SH | bash -s -- install <package-name>"
+    echo "Usage: pkgman install <package-name>"
 fi
