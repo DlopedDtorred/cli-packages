@@ -1,16 +1,11 @@
 {
   "packages": {
-    "hola": {
-      "name": "hola",
-      "description": "Un script de prueba",
-      "url": "https://raw.githubusercontent.com/sindresorhus/awesome/main/readme.md"
-    },
-    "termcoder": {
-      "name": "termcoder",
+    "sample-pkg": {
+      "name": "sample-pkg",
       "version": "1.0.0",
-      "description": "Local AI Agent",
-      "url": "[https://raw.githubusercontent.com/dlopeddtorred/termcoder/main/install.sh](https://raw.githubusercontent.com/dlopeddtorred/termcoder/main/install.sh)",
-      "owner": "DlopedDtorred",
+      "description": "Sample description",
+      "url": "https://raw.githubusercontent.com/dlopeddtorred/sample-pkg/main/install.sh",
+      "owner": "dlopeddtorred",
       "verified": true
     }
   }
