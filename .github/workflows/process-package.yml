@@ -1,4 +1,4 @@
-name: Procesar Paquete Aprobado
+name: Process Approved Package
 
 on:
   issues:
@@ -12,44 +12,62 @@ jobs:
       contents: write
       issues: write
     steps:
-      - name: Checkout del repositorio
+      - name: Checkout registry repository
         uses: actions/checkout@v4
 
-      - name: Parsear formulario del Issue
+      - name: Parse issue form
         uses: stefanbuck/github-issue-parser@v3
         id: issue-parser
 
-      - name: Actualizar packages.json
+      - name: Fetch manifest and update packages.json
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const issueData = ${{{{ steps.issue-parser.outputs.jsonString }}};
+            const issueData = ${{ steps.issue-parser.outputs.jsonString }};
             const payload = issueData.payload;
 
             const pkgName = payload.package_name?.trim();
-            const description = payload.description?.trim();
-            const scriptUrl = payload.script_url?.trim();
+            const repoUrl = payload.repo_url?.trim();
 
-            if (!pkgName || !scriptUrl) {
-              console.error("Faltan datos obligatorios en el issue.");
+            if (!pkgName || !repoUrl) {
+              console.error("Missing required fields in the issue.");
               return;
             }
 
-            const filePath = './packages.json';
-            const fileContent = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+            // Transform https://github.com/user/repo into raw content URL for pkg.json
+            const cleanRepoUrl = repoUrl.replace(/\/$/, "");
+            const manifestUrl = cleanRepoUrl.replace("github.com", "raw.githubusercontent.com") + "/main/pkg.json";
 
-            fileContent.packages[pkgName] = {
-              name: pkgName,
-              description: description || "",
-              url: scriptUrl
-            };
+            console.log(`Fetching manifest from: ${manifestUrl}`);
 
-            fs.writeFileSync(filePath, JSON.stringify(fileContent, null, 2));
-            console.log(`Paquete '${pkgName}' añadido exitosamente.`);
+            try {
+              const response = await fetch(manifestUrl);
+              if (!response.ok) {
+                throw new Error(`Failed to fetch pkg.json (Status: ${response.status})`);
+              }
+              const manifest = await response.json();
 
-      - name: Guardar cambios en el repositorio
+              const filePath = './packages.json';
+              const fileContent = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+
+              fileContent.packages[pkgName] = {
+                name: manifest.name || pkgName,
+                version: manifest.version || "1.0.0",
+                description: manifest.description || "",
+                url: manifest.install
+              };
+
+              fs.writeFileSync(filePath, JSON.stringify(fileContent, null, 2));
+              console.log(`Package '${pkgName}' successfully registered!`);
+
+            } catch (error) {
+              console.error("Error processing manifest:", error.message);
+              setFailed(error.message);
+            }
+
+      - name: Commit changes to registry
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Automático: añadir paquete desde issue aprobado"
+          commit_message: "chore: auto-add approved package via manifest"
           branch: main
