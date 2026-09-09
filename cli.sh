@@ -13,6 +13,8 @@ show_help() {
     echo ""
     echo "Comandos:"
     echo "  install <paquete>   Instala un paquete registrado en el catálogo central"
+    echo "  remove <paquete>    Desinstala un paquete del sistema local"
+    echo "  unpublish <paquete> Elimina un paquete del registro central (Solo el dueño)"
     echo "  list                Muestra todos los paquetes disponibles para instalar"
     echo "  upload              Detecta install.sh, crea pkg.json y publica tu paquete"
     echo "  help, -h, --help    Muestra esta ayuda"
@@ -54,6 +56,33 @@ cmd_install() {
     echo "==> Descargando e instalando desde '$INSTALL_URL'..."
     curl -sL "$INSTALL_URL" | bash
     echo "¡Paquete '$PKG_NAME' instalado correctamente!"
+}
+
+# Comando: remove (desinstalación del sistema local)
+cmd_remove() {
+    PKG_NAME="$1"
+    if [ -z "$PKG_NAME" ]; then
+        echo "Error: Debes especificar el nombre del paquete a eliminar de tu sistema."
+        echo "Uso: pkgman remove <nombre_paquete>"
+        exit 1
+    fi
+
+    TARGET_PATH="/usr/local/bin/$PKG_NAME"
+
+    if [ ! -f "$TARGET_PATH" ]; then
+        echo "Error: El ejecutable '$PKG_NAME' no se encuentra instalado en '$TARGET_PATH'."
+        exit 1
+    fi
+
+    echo "==> Eliminando binario local '$TARGET_PATH'..."
+
+    if [ -w "/usr/local/bin" ]; then
+        rm -f "$TARGET_PATH"
+    else
+        sudo rm -f "$TARGET_PATH"
+    fi
+
+    echo "¡El paquete '$PKG_NAME' ha sido desinstalado de tu sistema local correctamente!"
 }
 
 # Comando: list
@@ -154,12 +183,14 @@ EOF
     BRANCH_NAME="add-$PKG_NAME"
     git checkout -b "$BRANCH_NAME"
 
+    # Se guarda el propietario (owner) para validar permisos de unpublish en el futuro
     jq --arg name "$PKG_NAME" \
        --arg ver "$PKG_VER" \
        --arg desc "$PKG_DESC" \
        --arg url "$PKG_INSTALL" \
+       --arg owner "$MY_GH_USER" \
        --argjson is_ver "$VERIFIED_FLAG" \
-       '.packages[$name] = {"name": $name, "version": $ver, "description": $desc, "url": $url, "verified": $is_ver}' \
+       '.packages[$name] = {"name": $name, "version": $ver, "description": $desc, "url": $url, "owner": $owner, "verified": $is_ver}' \
        packages.json > packages.tmp.json && mv packages.tmp.json packages.json
 
     git add packages.json
@@ -177,10 +208,86 @@ EOF
     rm -rf "$TMP_DIR"
 }
 
+# Comando: unpublish (eliminación con verificación de dueño en el registro)
+cmd_unpublish() {
+    PKG_NAME="$1"
+    if [ -z "$PKG_NAME" ]; then
+        echo "Error: Debes especificar el paquete a eliminar del registro central."
+        echo "Uso: pkgman unpublish <nombre_paquete>"
+        exit 1
+    fi
+
+    if ! command -v gh &> /dev/null; then
+        echo "Error: Necesitas la CLI de GitHub ('gh') instalada y autenticada."
+        exit 1
+    fi
+
+    MY_GH_USER=$(gh api user -q .login)
+    REGISTRY_JSON=$(curl -sL "$REGISTRY_URL")
+
+    PKG_DATA=$(echo "$REGISTRY_JSON" | jq -r ".packages[\"$PKG_NAME\"] // empty")
+
+    if [ -z "$PKG_DATA" ]; then
+        echo "Error: El paquete '$PKG_NAME' no existe en el registro central."
+        exit 1
+    fi
+
+    PKG_OWNER=$(echo "$PKG_DATA" | jq -r '.owner // empty')
+
+    # Comprobar si el usuario actual es un admin/dev verificado
+    DEV_JSON=$(curl -sL "$DEVELOPERS_URL")
+    IS_DEV_VERIFIED=$(echo "$DEV_JSON" | jq --arg user "$MY_GH_USER" '.verified // [] | contains([$user])')
+
+    # Verificación de permisos
+    if [ "$MY_GH_USER" != "$PKG_OWNER" ] && [ "$IS_DEV_VERIFIED" != "true" ]; then
+        echo "❌ Permiso denegado: El paquete '$PKG_NAME' pertenece a @$PKG_OWNER."
+        echo "Solo el propietario original o un desarrollador verificado puede eliminarlo del registro."
+        exit 1
+    fi
+
+    echo "==> Permisos confirmados para @$MY_GH_USER. Generando solicitud de eliminación..."
+
+    gh repo fork dlopeddtorred/cli-packages --clone=false 2>/dev/null || true
+    TMP_DIR=$(mktemp -d)
+    git clone "https://github.com/$MY_GH_USER/cli-packages.git" "$TMP_DIR"
+
+    cd "$TMP_DIR"
+    git remote add upstream https://github.com/dlopeddtorred/cli-packages.git 2>/dev/null || true
+    git fetch upstream
+    git checkout main
+    git merge upstream/main
+
+    BRANCH_NAME="remove-$PKG_NAME"
+    git checkout -b "$BRANCH_NAME"
+
+    # Se borra el paquete de packages.json
+    jq --arg name "$PKG_NAME" 'del(.packages[$name])' packages.json > packages.tmp.json && mv packages.tmp.json packages.json
+
+    git add packages.json
+    git commit -m "chore: remove package $PKG_NAME"
+    git push origin "$BRANCH_NAME" --force
+
+    gh pr create \
+      --repo dlopeddtorred/cli-packages \
+      --title "Remove package: $PKG_NAME" \
+      --body "Removal request for **$PKG_NAME** authorized by owner @$MY_GH_USER" \
+      --head "$MY_GH_USER:$BRANCH_NAME" \
+      --base main
+
+    echo "¡Solicitud de eliminación enviada con éxito para '$PKG_NAME'!"
+    rm -rf "$TMP_DIR"
+}
+
 # Evaluador principal
 case "$1" in
     install)
         cmd_install "$2"
+        ;;
+    remove|uninstall)
+        cmd_remove "$2"
+        ;;
+    unpublish)
+        cmd_unpublish "$2"
         ;;
     list)
         cmd_list
