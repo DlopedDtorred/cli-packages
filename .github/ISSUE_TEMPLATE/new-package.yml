@@ -1,0 +1,20 @@
+name: Add new package
+description: Propose a new package for the registry.
+title: "[Package]: "
+body:
+  - type: input
+    id: package_name
+    attributes:
+      label: Package Name
+      description: A short, unique name (e.g. my-tool).
+      placeholder: my-package
+    validations:
+      required: true
+  - type: input
+    id: repo_url
+    attributes:
+      label: Repository URL
+      description: The URL of your GitHub repository containing the manifest file.
+      placeholder: https://github.com/username/my-package-repo
+    validations:
+      required: true
