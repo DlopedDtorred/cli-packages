@@ -1,19 +1,24 @@
+
 #!/bin/bash
 set -e
 
 REGISTRY_URL="https://raw.githubusercontent.com/dlopeddtorred/cli-packages/main/packages.json"
 
-# Declaración de funciones de ayuda
+# Comando: help
 show_help() {
-    echo "Uso: pkgman <comando> [argumentos]"
+    echo "pkgman - Gestor de paquetes para la CLI"
     echo ""
-    echo "Comandos disponibles:"
-    echo "  install <paquete>   Instala un paquete desde el registro central"
-    echo "  list                Muestra todos los paquetes disponibles"
-    echo "  upload              Genera pkg.json y publica el paquete actual"
-    echo "  help                Muestra este mensaje de ayuda"
+    echo "Uso:"
+    echo "  pkgman <comando> [opciones]"
+    echo ""
+    echo "Comandos:"
+    echo "  install <paquete>   Instala un paquete registrado en el catálogo central"
+    echo "  list                Muestra todos los paquetes disponibles para instalar"
+    echo "  upload              Detecta install.sh, crea pkg.json y publica tu paquete"
+    echo "  help, -h, --help    Muestra esta ayuda"
 }
 
+# Comando: install
 cmd_install() {
     PKG_NAME="$1"
     if [ -z "$PKG_NAME" ]; then
@@ -37,6 +42,7 @@ cmd_install() {
     echo "¡Paquete '$PKG_NAME' instalado correctamente!"
 }
 
+# Comando: list
 cmd_list() {
     echo "==> Obteniendo lista de paquetes disponibles..."
     REGISTRY_JSON=$(curl -sL "$REGISTRY_URL")
@@ -44,16 +50,15 @@ cmd_list() {
     echo "$REGISTRY_JSON" | jq -r '.packages | to_entries[] | "  - \(.key): \(.value.description) (v\(.value.version))"'
 }
 
+# Comando: upload
 cmd_upload() {
     echo "==> Preparando publicación del paquete..."
 
-    # 1. Verificar que existe un instalador
     if [ ! -f "install.sh" ]; then
         echo "Error: No se encontró un archivo install.sh en este directorio."
         exit 1
     fi
 
-    # 2. Generar pkg.json si no existe
     if [ ! -f "pkg.json" ]; then
         echo "No se encontró pkg.json. Generando uno nuevo..."
         
@@ -66,7 +71,6 @@ cmd_upload() {
         
         read -p "Descripción: " PKG_DESC
         
-        # Obtener URL remota de Git
         REPO_URL=$(git config --get remote.origin.url | sed 's/\.git$//' | sed 's/git@github\.com:/https:\/\/github\.com\//')
         
         if [ -z "$REPO_URL" ]; then
@@ -90,7 +94,6 @@ EOF
         git push origin main
     fi
 
-    # 3. Registrar en el repositorio central mediante la CLI de GitHub local
     echo "==> Registrando en el catálogo central..."
     
     if ! command -v gh &> /dev/null; then
@@ -104,12 +107,10 @@ EOF
     PKG_DESC=$(jq -r '.description' pkg.json)
     PKG_INSTALL=$(jq -r '.install' pkg.json)
 
-    # Fork y Pull Request automático desde la terminal del usuario
     gh repo fork dlopeddtorred/cli-packages --clone=false 2>/dev/null || true
     
     MY_GH_USER=$(gh api user -q .login)
     
-    # Clonar temporalmente packages.json del registro
     TMP_DIR=$(mktemp -d)
     git clone "https://github.com/$MY_GH_USER/cli-packages.git" "$TMP_DIR"
     
@@ -122,7 +123,6 @@ EOF
     BRANCH_NAME="add-$PKG_NAME"
     git checkout -b "$BRANCH_NAME"
 
-    # Actualizar packages.json localmente
     jq --arg name "$PKG_NAME" \
        --arg ver "$PKG_VER" \
        --arg desc "$PKG_DESC" \
@@ -145,7 +145,7 @@ EOF
     rm -rf "$TMP_DIR"
 }
 
-# Control principal de comandos
+# Evaluador principal
 case "$1" in
     install)
         cmd_install "$2"
@@ -161,6 +161,7 @@ case "$1" in
         ;;
     *)
         echo "Comando no reconocido: $1"
+        echo ""
         show_help
         exit 1
         ;;
