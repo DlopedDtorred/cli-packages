@@ -31,14 +31,26 @@ jobs:
 
             const fs = require('fs');
             const issueData = ${{ steps.issue-parser.outputs.jsonString }};
-            const payload = issueData.payload;
+            
+            // Validación robusta para evitar errores si el payload viene vacío o con otro formato
+            if (!issueData || !issueData.payload) {
+              console.error("No se pudo parsear el contenido del issue correctamente.");
+              return;
+            }
 
-            const pkgName = payload.package_name?.trim();
-            const repoUrl = payload.repo_url?.trim();
+            const payload = issueData.payload;
+            const pkgName = (payload.package_name || payload.pkg_name || Object.values(payload)[0])?.trim();
+            const repoUrl = (payload.repo_url || payload.repository_url || Object.values(payload)[1])?.trim();
             const issueNumber = context.payload.issue.number;
 
             if (!pkgName || !repoUrl) {
               console.error("Faltan campos obligatorios en el issue.");
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `❌ Error: No se pudieron leer el nombre del paquete o la URL del repositorio desde el formulario del issue.`
+              });
               return;
             }
 
@@ -68,6 +80,10 @@ jobs:
             const filePath = './packages.json';
             const fileContent = JSON.parse(fs.readFileSync(filePath, 'utf8'));
 
+            if (!fileContent.packages) {
+              fileContent.packages = {};
+            }
+
             fileContent.packages[pkgName] = {
               name: manifest.name || pkgName,
               version: manifest.version || "1.0.0",
@@ -75,7 +91,6 @@ jobs:
               url: manifest.install
             };
 
-            // ESCRITURA REAL EN EL DISCO DEL WORKFLOW
             fs.writeFileSync(filePath, JSON.stringify(fileContent, null, 2));
             console.log(`Paquete '${pkgName}' escrito correctamente en packages.json`);
 
