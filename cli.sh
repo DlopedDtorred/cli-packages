@@ -1,4 +1,3 @@
-
 #!/bin/bash
 set -e
 
@@ -30,14 +29,28 @@ cmd_install() {
     echo "==> Buscando '$PKG_NAME' en el registro central..."
     REGISTRY_JSON=$(curl -sL "$REGISTRY_URL")
 
-    INSTALL_URL=$(echo "$REGISTRY_JSON" | jq -r ".packages[\"$PKG_NAME\"].url // empty")
+    PKG_DATA=$(echo "$REGISTRY_JSON" | jq -r ".packages[\"$PKG_NAME\"] // empty")
 
-    if [ -z "$INSTALL_URL" ]; then
+    if [ -z "$PKG_DATA" ]; then
         echo "Error: El paquete '$PKG_NAME' no se encuentra en el registro."
         exit 1
     fi
 
-    echo "==> Descargando e instalando '$PKG_NAME'..."
+    INSTALL_URL=$(echo "$PKG_DATA" | jq -r '.url')
+    IS_VERIFIED=$(echo "$PKG_DATA" | jq -r '.verified // false')
+
+    if [ "$IS_VERIFIED" = "true" ]; then
+        echo "==> [✓ Desarrollador Verificado] Instalando '$PKG_NAME' seguro..."
+    else
+        echo "==> ⚠️ ATENCIÓN: El paquete '$PKG_NAME' no es de un desarrollador verificado."
+        read -p "¿Deseas continuar con la instalación de todas formas? (s/N): " CONFIRM
+        if [[ ! "$CONFIRM" =~ ^[sS]$ ]]; then
+            echo "Instalación cancelada."
+            exit 0
+        fi
+    fi
+
+    echo "==> Descargando e instalando desde '$INSTALL_URL'..."
     curl -sL "$INSTALL_URL" | bash
     echo "¡Paquete '$PKG_NAME' instalado correctamente!"
 }
@@ -47,7 +60,12 @@ cmd_list() {
     echo "==> Obteniendo lista de paquetes disponibles..."
     REGISTRY_JSON=$(curl -sL "$REGISTRY_URL")
     
-    echo "$REGISTRY_JSON" | jq -r '.packages | to_entries[] | "  - \(.key): \(.value.description) (v\(.value.version))"'
+    echo "$REGISTRY_JSON" | jq -r '.packages | to_entries[] | 
+      if .value.verified == true then
+        "  - \(.key) [✓ Verificado]: \(.value.description) (v\(.value.version))"
+      else
+        "  - \(.key): \(.value.description) (v\(.value.version))"
+      fi'
 }
 
 # Comando: upload
@@ -127,7 +145,7 @@ EOF
        --arg ver "$PKG_VER" \
        --arg desc "$PKG_DESC" \
        --arg url "$PKG_INSTALL" \
-       '.packages[$name] = {"name": $name, "version": $ver, "description": $desc, "url": $url}' \
+       '.packages[$name] = {"name": $name, "version": $ver, "description": $desc, "url": $url, "verified": false}' \
        packages.json > packages.tmp.json && mv packages.tmp.json packages.json
 
     git add packages.json
