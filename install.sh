@@ -1,17 +1,19 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -e
 
-INSTALL_DIR="/usr/local/bin"
-CLI_NAME="pkgman" # O el nombre que quieras para tu comando
-REPO_RAW_URL="https://raw.githubusercontent.com/dlopeddtorred/cli-packages/main/cli.sh"
+echo "Instalando pkgman..."
 
-echo "Installing $CLI_NAME..."
+# Descargar el CLI principal
+curl -sL https://raw.githubusercontent.com/dlopeddtorred/cli-packages/main/cli.sh -o /tmp/pkgman
 
-# Descargar el cli.sh principal y guardarlo en el directorio de binarios del sistema
-sudo curl -sL "$REPO_RAW_URL" -o "$INSTALL_DIR/$CLI_NAME"
+# Dar permisos de ejecución
+chmod +x /tmp/pkgman
 
-# Darle permisos de ejecución
-sudo chmod +x "$INSTALL_DIR/$CLI_NAME"
+# Mover a un directorio en el PATH del sistema
+if [ -w /usr/local/bin ]; then
+    mv /tmp/pkgman /usr/local/bin/pkgman
+else
+    sudo mv /tmp/pkgman /usr/local/bin/pkgman
+fi
 
-echo "✨ Successfully installed! You can now use '$CLI_NAME' from anywhere."
-echo "Try running: $CLI_NAME install <package-name>"
+echo "¡pkgman instalado con éxito! Prueba ejecutando: pkgman"
