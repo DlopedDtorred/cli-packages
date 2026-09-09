@@ -9,7 +9,8 @@
       "name": "termcoder",
       "version": "1.0.0",
       "description": "Local AI Agent",
-      "url": "[https://raw.githubusercontent.com/dlopeddtorred/termcoder/main/install.sh](https://raw.githubusercontent.com/dlopeddtorred/termcoder/main/install.sh)"
+      "url": "[https://raw.githubusercontent.com/dlopeddtorred/termcoder/main/install.sh](https://raw.githubusercontent.com/dlopeddtorred/termcoder/main/install.sh)",
+      "verified": false
     }
   }
 }
