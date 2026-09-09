@@ -90,7 +90,7 @@ jobs:
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT }}
           commit-message: "chore: add package from issue #${{ github.event.issue.number }}"
           title: "Add package: issue #${{ github.event.issue.number }}"
           body: |
