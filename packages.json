@@ -1,3 +1,9 @@
 {
-  "packages": {}
+  "packages": {
+    "hola": {
+      "name": "hola",
+      "description": "Un script de prueba",
+      "url": "https://raw.githubusercontent.com/sindresorhus/awesome/main/readme.md"
+    }
+  }
 }
