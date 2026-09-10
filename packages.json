@@ -15,6 +15,14 @@
       "url": "https://raw.githubusercontent.com/DlopedDtorred/termcoder/main/install.sh",
       "owner": "DlopedDtorred",
       "verified": true
+    },
+    "forgectl": {
+      "name": "forgectl",
+      "version": "1.0.0",
+      "description": "La herramienta universal de gestión de proyectos. Crea, inicializa y gestiona proyectos de desarrollo completos, localmente y en plataformas remotas (GitHub, GitLab, Gitea), con un solo comando.",
+      "url": "https://raw.githubusercontent.com/DlopedDtorred/forgectl/main/install.sh",
+      "owner": "DlopedDtorred",
+      "verified": true
     }
   }
 }
